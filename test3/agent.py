@@ -257,6 +257,9 @@ class PlayerAgent:
         if location in self.corners:
             self.corners.remove(location)
 
+        if location in self.other_corners:
+            self.other_corners.remove(location)
+
         if not board.is_valid_cell(next_loc):
             return -1e9
 
@@ -271,6 +274,12 @@ class PlayerAgent:
             score += 4
             if next_loc in self.corners:
                 score += 4
+        
+        if move_type == MoveType.TURD:
+            if not board.can_lay_egg():
+                x, y = location
+                if x != 0 and y != 0 and x != 7 and y != 7:
+                    score += 4
 
         if next_loc in self.visited:
             #maybe changing the heuristic here will prevent it from looping?
@@ -288,6 +297,12 @@ class PlayerAgent:
 
         if reach == 0:
             score -= 100
+        
+        opp_loc = forecast.chicken_enemy.get_location()
+        opp_dist = abs(post_loc[0] - opp_loc[0]) + abs(post_loc[1] - opp_loc[1])
+
+        if opp_dist <= 4:
+            score -= 10
 
         # Check reachability to each corner
         not_reachable = []
