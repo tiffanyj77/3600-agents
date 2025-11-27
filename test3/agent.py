@@ -296,7 +296,7 @@ class PlayerAgent:
         score += reach
 
         if reach == 0:
-            score -= 100
+            score -= 500
         
         opp_loc = forecast.chicken_enemy.get_location()
         opp_dist = abs(post_loc[0] - opp_loc[0]) + abs(post_loc[1] - opp_loc[1])
