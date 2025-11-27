@@ -132,7 +132,7 @@ class PlayerAgent:
         opp_loc = forecast.chicken_enemy.get_location()
         opp_dist = abs(post_loc[0] - opp_loc[0]) + abs(post_loc[1] - opp_loc[1])
 
-        if opp_dist >= 4:
+        if opp_dist <= 4:
             score -= 10
 
         reach = self.reachable(forecast, post_loc)
