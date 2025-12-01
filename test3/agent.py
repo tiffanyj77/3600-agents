@@ -91,10 +91,10 @@ class PlayerAgent:
                 self.corners = {(0, 7), (7, 0)}
                 self.other_corners = {(0, 0), (7, 7)}
         location = board.chicken_player.get_location()
-        print(f"I'm at {location}.")
-        print(f"Trapdoor A: heard? {sensor_data[0][0]}, felt? {sensor_data[0][1]}")
-        print(f"Trapdoor B: heard? {sensor_data[1][0]}, felt? {sensor_data[1][1]}")
-        print(f"Starting to think with {time_left()} seconds left.")
+        # print(f"I'm at {location}.")
+        # print(f"Trapdoor A: heard? {sensor_data[0][0]}, felt? {sensor_data[0][1]}")
+        # print(f"Trapdoor B: heard? {sensor_data[1][0]}, felt? {sensor_data[1][1]}")
+        # print(f"Starting to think with {time_left()} seconds left.")
 
         self.update_trap_senses(location, sensor_data)
 
@@ -117,12 +117,8 @@ class PlayerAgent:
         self.last_location = location
         print(f"I have {time_left()} seconds left. Playing {result}.")
 
-        if len(self.move_history) == 40:   # 40 turns per player from the assignment
-            print("==== FULL MOVE HISTORY FOR THIS GAME ====")
-            for turn_idx, (loc, mv) in enumerate(self.move_history):
-                print(f"Turn {turn_idx}: at {loc}, played {mv}")
-
         return result
+
 
     def debug_print_trap_candidates(self):
         """
@@ -132,9 +128,9 @@ class PlayerAgent:
         white_candidates = sorted(self.trap_candidates[0])
         black_candidates = sorted(self.trap_candidates[1])
 
-        print("Current candidate trapdoor locations:")
-        print(f"  White trapdoor candidates: {white_candidates}")
-        print(f"  Black trapdoor candidates: {black_candidates}")
+        # print("Current candidate trapdoor locations:")
+        # print(f"  White trapdoor candidates: {white_candidates}")
+        # print(f"  Black trapdoor candidates: {black_candidates}")
 
 
     def _neighbors_radius1(self, loc: Tuple[int, int]) -> Set[Tuple[int, int]]:
@@ -274,7 +270,7 @@ class PlayerAgent:
             score += 4
             if next_loc in self.corners:
                 score += 4
-        
+
         if move_type == MoveType.TURD:
             if not board.can_lay_egg():
                 x, y = location
@@ -297,7 +293,7 @@ class PlayerAgent:
 
         if reach == 0:
             score -= 500
-        
+
         opp_loc = forecast.chicken_enemy.get_location()
         opp_dist = abs(post_loc[0] - opp_loc[0]) + abs(post_loc[1] - opp_loc[1])
 

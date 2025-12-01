@@ -1,3 +1,4 @@
+#testtest
 from collections.abc import Callable
 from typing import List, Set, Tuple
 from collections import deque
@@ -37,6 +38,12 @@ class PlayerAgent:
         self.other_corners = {}
         self.visited = set()
         self.last_location = None
+
+                # --- opponent + trapdoor observations ---
+        self.last_enemy_loc = None               # enemy position on previous turn
+        self.enemy_trap_events = []              # list of {"turn", "loc", "color_idx"}
+        self.turn_index = 0                      # how many times play() has been called
+
 
         self.move_history = []
 
@@ -91,12 +98,22 @@ class PlayerAgent:
                 self.corners = {(0, 7), (7, 0)}
                 self.other_corners = {(0, 0), (7, 7)}
         location = board.chicken_player.get_location()
+        enemy_loc = board.chicken_enemy.get_location()
         print(f"I'm at {location}.")
+        print(f"Opponent at: {enemy_loc}")
         print(f"Trapdoor A: heard? {sensor_data[0][0]}, felt? {sensor_data[0][1]}")
         print(f"Trapdoor B: heard? {sensor_data[1][0]}, felt? {sensor_data[1][1]}")
         print(f"Starting to think with {time_left()} seconds left.")
 
         self.update_trap_senses(location, sensor_data)
+
+        info = self.get_top_trapdoor_estimates()
+        for idx in (0,1):
+            color = "White" if idx == 0 else "Black"
+            print(f"{color} trap belief:")
+            print("  Top candidates:", info[idx]["top_candidates"])
+            print(f"  BEST → {info[idx]['detected']} (conf={info[idx]['confidence']:.2f})\n")
+
 
         # print candidate trapdoor locations for debugging
         self.debug_print_trap_candidates()
@@ -122,7 +139,12 @@ class PlayerAgent:
             for turn_idx, (loc, mv) in enumerate(self.move_history):
                 print(f"Turn {turn_idx}: at {loc}, played {mv}")
 
+                # update enemy memory and turn counter
+        self.last_enemy_loc = enemy_loc
+        self.turn_index += 1
+
         return result
+
 
     def debug_print_trap_candidates(self):
         """
@@ -136,6 +158,29 @@ class PlayerAgent:
         print(f"  White trapdoor candidates: {white_candidates}")
         print(f"  Black trapdoor candidates: {black_candidates}")
 
+    def get_top_trapdoor_estimates(self, k: int = 3, threshold: float = 0.75):
+        """
+        Returns:
+            - top candidate squares for each color
+            - if confident enough, returns the detected trapdoor cell
+        """
+        results = {}
+
+        for idx in (0, 1):
+            beliefs = self.trap_belief[idx]
+            sorted_cells = sorted(beliefs.items(), key=lambda x: x[1], reverse=True)
+
+            top_k = sorted_cells[:k]
+            best_cell, best_prob = top_k[0]
+
+            results[idx] = {
+                "top_candidates": top_k,
+                "detected" : best_cell if best_prob >= threshold else None,
+                "confidence": best_prob
+            }
+
+        return results
+
 
     def _neighbors_radius1(self, loc: Tuple[int, int]) -> Set[Tuple[int, int]]:
         x, y = loc
@@ -148,6 +193,15 @@ class PlayerAgent:
                 if 0 <= nx < self.map_size and 0 <= ny < self.map_size:
                     out.add((nx, ny))
         return out
+
+    def trap_danger_score(self, loc: Tuple[int,int]) -> float:
+        """Returns risk score based on trap probability at this square."""
+        danger = 0
+        for idx in (0,1):     # white + black trapdoor
+            if loc in self.trap_belief[idx]:
+                danger += self.trap_belief[idx][loc] * 500  # scale penalty
+        return danger
+
 
     def update_trap_senses(
         self,
@@ -207,6 +261,39 @@ class PlayerAgent:
         dy = abs(loc[1] - trap_loc[1])
         return PROB_HEAR.get((dx, dy), 0.0)
 
+    def check_opponent_trap_fall(self, current_enemy_loc: Tuple[int, int] | None) -> None:
+        """
+        Detect if the opponent has just fallen into a trapdoor and record it.
+
+        Assumes the game sets enemy location to None (or some invalid value)
+        when they fall through a trap. If that is different in your engine,
+        tweak the detection condition below.
+        """
+        # enemy "disappeared" this turn, but existed last turn
+        if current_enemy_loc is None and self.last_enemy_loc is not None:
+            fallen_cell = self.last_enemy_loc
+
+            # trapdoor color: parity of (i + j)
+            color_idx = 0 if (fallen_cell[0] + fallen_cell[1]) % 2 == 0 else 1
+
+            # store in a log for later analysis / debugging
+            event = {
+                "turn": self.turn_index,
+                "loc": fallen_cell,
+                "color_idx": color_idx,       # 0 = white, 1 = black
+            }
+            self.enemy_trap_events.append(event)
+
+            print("=== ENEMY TRAP EVENT DETECTED ===")
+            print(f"  Turn: {self.turn_index}")
+            print(f"  Enemy fell into trapdoor at {fallen_cell}, color_idx={color_idx}")
+            print("=================================")
+
+            # now we KNOW that square is the trapdoor for that color:
+            self.trap_candidates[color_idx] = {fallen_cell}
+            self.trap_belief[color_idx] = {fallen_cell: 1.0}
+
+
     def prob_feel_given_trap(self, trap_loc: Tuple[int, int], loc: Tuple[int, int]) -> float:
         """Return P(feel | trap at trap_loc, we are at loc)."""
         dx = abs(loc[0] - trap_loc[0])
@@ -265,9 +352,8 @@ class PlayerAgent:
 
         score = 0
 
-        danger_cells = self.trap_candidates[0] | self.trap_candidates[1]
-        if next_loc in danger_cells:
-            score -= 500    # big penalty for stepping on possible trap
+        danger = self.trap_danger_score(next_loc)
+        score -= danger
 
         score -= self.center_penalty(next_loc)
         if move_type == MoveType.EGG:
