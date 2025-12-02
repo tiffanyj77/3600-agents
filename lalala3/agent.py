@@ -45,7 +45,7 @@ class PlayerAgent:
         self.last_enemy_loc = None               # enemy position on previous turn
         self.enemy_trap_events = []              # list of {"turn", "loc", "color_idx"}
         self.turn_index = 0                      # how many times play() has been called
-
+        self.enemy_start = None
 
         self.move_history = []
 
@@ -99,6 +99,10 @@ class PlayerAgent:
             else:
                 self.corners = {(0, 7), (7, 0)}
                 self.other_corners = {(0, 0), (7, 7)}
+
+        if self.enemy_start is None:
+            self.enemy_start = board.chicken_enemy.get_spawn()
+        
         location = board.chicken_player.get_location()
         enemy_loc = board.chicken_enemy.get_location()
         print(f"I'm at {location}.")
@@ -128,17 +132,16 @@ class PlayerAgent:
             if s > result_score:
                 result_score = s
                 result = move
-
         self.move_history.append((location, result))
 
         self.visited.add(location)
         self.last_location = location
         print(f"I have {time_left()} seconds left. Playing {result}.")
-
-        if len(self.move_history) == 40:   # 40 turns per player from the assignment
-            print("==== FULL MOVE HISTORY FOR THIS GAME ====")
-            for turn_idx, (loc, mv) in enumerate(self.move_history):
-                print(f"Turn {turn_idx}: at {loc}, played {mv}")
+        
+        # if len(self.move_history) == 40:   # 40 turns per player from the assignment
+        #     print("==== FULL MOVE HISTORY FOR THIS GAME ====")
+        #     for turn_idx, (loc, mv) in enumerate(self.move_history):
+        #         print(f"Turn {turn_idx}: at {loc}, played {mv}")
 
                 # update enemy memory and turn counter
         self.last_enemy_loc = enemy_loc
@@ -199,8 +202,11 @@ class PlayerAgent:
                     out.add((nx, ny))
         return out
 
-    def trap_danger_score(self, loc: Tuple[int,int]) -> float:
+    def trap_danger_score(self, board: board.Board, loc: Tuple[int,int]) -> float:
         """Returns risk score based on trap probability at this square."""
+        if loc in board.found_trapdoors:
+            return 1e6
+        
         danger = 0
         for idx in (0,1):     # white + black trapdoor
             if loc in self.trap_belief[idx]:
@@ -338,6 +344,8 @@ class PlayerAgent:
                     continue
                 if board.is_cell_blocked(next_move):
                     continue
+                if next_move in board.found_trapdoors:
+                    continue
                 if next_move not in visited:
                     q.append(next_move)
         return len(visited)
@@ -357,7 +365,7 @@ class PlayerAgent:
 
         score = 0
 
-        danger = self.trap_danger_score(next_loc)
+        danger = self.trap_danger_score(board, next_loc)
         score -= danger
 
         if move_type == MoveType.EGG:
@@ -368,7 +376,7 @@ class PlayerAgent:
         if move_type == MoveType.TURD:
             if not board.can_lay_egg():
                 x, y = location
-                if board.turns_left_player < 20:
+                if board.turns_left_player < 15:
                     if x != 0 and y != 0 and x != 7 and y != 7:
                         score += 4
 
@@ -398,13 +406,17 @@ class PlayerAgent:
 
         if opp_dist <= 3:
             if move_type == MoveType.TURD:
-                score += 20
+                score += 50
 
         if post_loc[0] in (0,7) or post_loc[1] in (0,7):
             if opp_dist <= 3:
                 score -= 50 
             elif opp_dist <= 2:
                 score -= 150 
+        
+        dist_opp_start = self.distance_to(post_loc, self.enemy_start)
+        if dist_opp_start <= 2:
+            score -= 30
 
         # Check reachability to each corner
         not_reachable = []
@@ -452,6 +464,8 @@ class PlayerAgent:
                 return True
             if cur in visited:
                 continue
+            if cur in board.found_trapdoors:
+                continue
             visited.add(cur)
 
             for d in Direction:
@@ -459,6 +473,8 @@ class PlayerAgent:
                 if not board.is_valid_cell(nxt):
                     continue
                 if board.is_cell_blocked(nxt):
+                    continue
+                if nxt in board.found_trapdoors:
                     continue
                 if nxt not in visited:
                     q.append(nxt)
