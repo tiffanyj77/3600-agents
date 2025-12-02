@@ -37,6 +37,7 @@ class PlayerAgent:
     def __init__(self, board: board.Board, time_left: Callable):
         self.corners = {}
         self.other_corners = {}
+        self.unreachable_corners = set()
         self.visited = set()
         self.last_location = None
 
@@ -180,7 +181,11 @@ class PlayerAgent:
             }
 
         return results
-
+    
+    def distance_to(self, loc1: Tuple[int, int], loc2: Tuple[int, int]) -> int:
+        x1, y1 = loc1
+        x2, y2 = loc2
+        return abs(x1 - x2) + abs(y1 - y2)
 
     def _neighbors_radius1(self, loc: Tuple[int, int]) -> Set[Tuple[int, int]]:
         x, y = loc
@@ -400,6 +405,7 @@ class PlayerAgent:
         for corner in self.corners:
             if not self.is_reachable(forecast, post_loc, corner):
                 not_reachable.append(corner)
+                self.unreachable_corners.add(corner)
             else:
                 if corner in self.visited:
                     not_reachable.append(corner)
@@ -414,12 +420,16 @@ class PlayerAgent:
             for corner in self.other_corners:
                 if not self.is_reachable(forecast, post_loc, corner):
                     not_reachable1.append(corner)
+                    self.unreachable_corners.add(corner)
                 else:
                     dist = self.distance_corner(next_loc)
                     score -= dist
         for not_reach1 in not_reachable1:
             self.other_corners.remove(not_reach1)
-
+        
+        for unreachable in self.unreachable_corners:
+            if self.distance_to(next_loc, unreachable) <= 2:
+                score -= 20
 
         return score
 
