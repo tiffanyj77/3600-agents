@@ -399,8 +399,12 @@ class PlayerAgent:
         if opp_dist <= 3:
             if move_type == MoveType.TURD:
                 score += 20
-            if next_loc in self.corners or next_loc in self.other_corners:
-                score -= 300
+
+        if post_loc[0] in (0,7) or post_loc[1] in (0,7):
+            if opp_dist <= 3:
+                score -= 50 
+            elif opp_dist <= 2:
+                score -= 150 
 
         # Check reachability to each corner
         not_reachable = []
