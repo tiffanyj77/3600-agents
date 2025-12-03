@@ -40,6 +40,7 @@ class PlayerAgent:
         self.unreachable_corners = set()
         self.visited = set()
         self.last_location = None
+        self.egg_direction = None
 
                 # --- opponent + trapdoor observations ---
         self.last_enemy_loc = None               # enemy position on previous turn
@@ -102,7 +103,7 @@ class PlayerAgent:
 
         if self.enemy_start is None:
             self.enemy_start = board.chicken_enemy.get_spawn()
-        
+
         location = board.chicken_player.get_location()
         enemy_loc = board.chicken_enemy.get_location()
         print(f"I'm at {location}.")
@@ -123,6 +124,10 @@ class PlayerAgent:
         # print candidate trapdoor locations for debugging
         self.debug_print_trap_candidates()
 
+        # choose an egg target & a direction for this turn
+        best_egg_target, best_egg_path, egg_dir = self.closest_reachable_lay_egg(board)
+        self.egg_direction = egg_dir
+
         moves = board.get_valid_moves()
         result = moves[0]
         result_score = -1e18
@@ -137,7 +142,7 @@ class PlayerAgent:
         self.visited.add(location)
         self.last_location = location
         print(f"I have {time_left()} seconds left. Playing {result}.")
-        
+
         # if len(self.move_history) == 40:   # 40 turns per player from the assignment
         #     print("==== FULL MOVE HISTORY FOR THIS GAME ====")
         #     for turn_idx, (loc, mv) in enumerate(self.move_history):
@@ -184,7 +189,7 @@ class PlayerAgent:
             }
 
         return results
-    
+
     def distance_to(self, loc1: Tuple[int, int], loc2: Tuple[int, int]) -> int:
         x1, y1 = loc1
         x2, y2 = loc2
@@ -206,7 +211,7 @@ class PlayerAgent:
         """Returns risk score based on trap probability at this square."""
         if loc in board.found_trapdoors:
             return 1e6
-        
+
         danger = 0
         for idx in (0,1):     # white + black trapdoor
             if loc in self.trap_belief[idx]:
@@ -311,25 +316,25 @@ class PlayerAgent:
         dy = abs(loc[1] - trap_loc[1])
         return PROB_FEEL.get((dx, dy), 0.0)
 
-    
+
     def score_corner_progress(self, board: board.Board, post_loc: Tuple[int,int]) -> float:
         score = 0
         best_corner_dist = 999
-        
+
         all_corners = list(self.corners) + list(self.other_corners)
         best_corner = None
 
         for corner in all_corners:
             if not self.is_reachable(board, post_loc, corner):
                 continue
-            
+
             dist = self.distance_to(post_loc, corner)
 
             if best_corner is None or dist < best_corner_dist:
                 best_corner = corner
 
             best_corner_dist = min(best_corner_dist, dist)
-        
+
         if best_corner is None:
             return 0
 
@@ -407,7 +412,7 @@ class PlayerAgent:
             score -= 100
         if next_loc is not None and next_loc == self.last_location:
             score -= 50
-        
+
         if next_loc in self.other_corners:
             score -= 50
             self.other_corners.remove(next_loc)
@@ -432,10 +437,10 @@ class PlayerAgent:
 
         if post_loc[0] in (0,7) or post_loc[1] in (0,7):
             if opp_dist <= 3:
-                score -= 50 
+                score -= 50
             elif opp_dist <= 2:
-                score -= 150 
-        
+                score -= 150
+
         dist_opp_start = self.distance_to(post_loc, self.enemy_start)
         if dist_opp_start <= 2:
             score -= 30
@@ -457,14 +462,111 @@ class PlayerAgent:
                     self.unreachable_corners.add(corner)
         for not_reach1 in not_reachable1:
             self.other_corners.remove(not_reach1)
-        
+
         for unreachable in self.unreachable_corners:
             if self.distance_to(next_loc, unreachable) <= 2:
                 score -= 20
-        
-        score += self.score_corner_progress(forecast, post_loc)
+
+        # ---- CORNER vs EGG PRIORITY ----
+        corner_score = self.score_corner_progress(forecast, post_loc)
+        score += corner_score
+
+        # If corners aren't giving us any progress (blocked/unreachable),
+        # follow the egg plan instead.
+        if corner_score == 0 and self.egg_direction is not None:
+            if move_type != MoveType.EGG and direction == self.egg_direction:
+                score += 200   # guidance bonus towards egg target
 
         return score
+
+    def closest_reachable_lay_egg(self, board: board.Board):
+        """
+        Returns:
+            (best_target_square, best_path, first_direction)
+
+        best_path is a list of coordinates (excluding start).
+        first_direction is a Direction enum.
+        """
+
+        start = board.chicken_player.get_location()
+
+        # All legal egg-lay squares
+        egg_squares = [
+            (x, y)
+            for x in range(8)
+            for y in range(8)
+            if board.can_lay_egg_at_loc((x, y))
+        ]
+        if not egg_squares:
+            return None, None, None
+
+        # ---------- TRAP PROSPECT MAP ----------
+        trap_score_map = {}
+        for sq in egg_squares:
+            risk = 0
+            for idx in (0, 1):
+                for trap_loc, belief in self.trap_belief[idx].items():
+                    d = self.distance_to(sq, trap_loc)
+                    risk += belief * max(0, 6 - d) * 50
+            trap_score_map[sq] = risk
+
+        # ---------- BFS ----------
+        queue = deque([(start, [])])   # (position, path)
+        visited = {start}
+
+        best_target = None
+        best_path = None
+        best_cost = 1e18  # minimize (distance + trap risk)
+
+        while queue:
+            pos, path = queue.popleft()
+
+            # If this position is a legal egg square:
+            if pos in egg_squares:
+                base_dist = len(path)
+                trap_penalty = trap_score_map[pos]
+                total_cost = base_dist + trap_penalty
+
+                if total_cost < best_cost:
+                    best_cost = total_cost
+                    best_target = pos
+                    best_path = path[:]  # copy
+
+            # Continue BFS expansion
+            for d in Direction:
+                nxt = loc_after_direction(pos, d)
+
+                if not board.is_valid_cell(nxt):
+                    continue
+                if nxt in visited:
+                    continue
+                if board.is_cell_blocked(nxt):
+                    continue
+
+                # Hard avoid high-trap probability squares
+                if self.trap_danger_score(board, nxt) > 400:
+                    continue
+
+                visited.add(nxt)
+                queue.append((nxt, path + [nxt]))
+
+        # Nothing reachable safely
+        if best_target is None:
+            return None, None, None
+
+        # Extract direction from first step on the path
+        if len(best_path) == 0:
+            return best_target, [], None
+
+        first_step = best_path[0]
+
+        for d in Direction:
+            if loc_after_direction(start, d) == first_step:
+                return best_target, best_path, d
+
+        # Fallback: path but no clear direction (shouldn't really happen)
+        return best_target, best_path, None
+
 
     def is_reachable(self, board, start, target):
         if board.is_cell_blocked(target):

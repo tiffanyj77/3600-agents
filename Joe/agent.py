@@ -102,7 +102,7 @@ class PlayerAgent:
 
         if self.enemy_start is None:
             self.enemy_start = board.chicken_enemy.get_spawn()
-        
+
         location = board.chicken_player.get_location()
         enemy_loc = board.chicken_enemy.get_location()
         print(f"I'm at {location}.")
@@ -136,7 +136,7 @@ class PlayerAgent:
         self.visited.add(location)
         self.last_location = location
         print(f"I have {time_left()} seconds left. Playing {result}.")
-        
+
         # if len(self.move_history) == 40:   # 40 turns per player from the assignment
         #     print("==== FULL MOVE HISTORY FOR THIS GAME ====")
         #     for turn_idx, (loc, mv) in enumerate(self.move_history):
@@ -183,7 +183,7 @@ class PlayerAgent:
             }
 
         return results
-    
+
     def distance_to(self, loc1: Tuple[int, int], loc2: Tuple[int, int]) -> int:
         x1, y1 = loc1
         x2, y2 = loc2
@@ -205,7 +205,7 @@ class PlayerAgent:
         """Returns risk score based on trap probability at this square."""
         if loc in board.found_trapdoors:
             return 1e6
-        
+
         danger = 0
         for idx in (0,1):     # white + black trapdoor
             if loc in self.trap_belief[idx]:
@@ -316,7 +316,15 @@ class PlayerAgent:
         if len(self.corners) != 0:
             return min(abs(x - cx) + abs(y - cy) for (cx, cy) in self.corners)
         return min(abs(x - cx) + abs(y - cy) for (cx, cy) in self.other_corners)
-    
+
+    def in_inner_square(self, loc: Tuple[int, int]) -> bool:
+        """
+        Returns True if loc is in the inner 6x6 square:
+        rows 1–6 and columns 1–6 (0-based indices).
+        """
+        x, y = loc
+        return 1 <= x <= 6 and 1 <= y <= 6
+
     def closest_reachable_lay_egg(self, board: board.Board):
         """
         Returns:
@@ -472,18 +480,21 @@ class PlayerAgent:
                 score += 20
 
         if move_type == MoveType.TURD:
-            if not board.can_lay_egg():
-                x, y = location
-                if board.turns_left_player < 15:
-                    if x != 0 and y != 0 and x != 7 and y != 7:
-                        score += 4
+            # Only want to drop turds in the inner square (rows 1–6, cols 1–6)
+            if not self.in_inner_square(location):
+                # Strongly discourage dropping turds on the outer ring
+                score -= 1000
+            else:
+                # Optional: keep your old late-game / no-egg bonus
+                if not board.can_lay_egg() and board.turns_left_player < 15:
+                    score += 4
 
         if next_loc in self.visited:
             #maybe changing the heuristic here will prevent it from looping?
             score -= 100
         if next_loc is not None and next_loc == self.last_location:
             score -= 50
-        
+
         if next_loc in self.other_corners:
             score -= 50
             self.other_corners.remove(next_loc)
@@ -513,10 +524,10 @@ class PlayerAgent:
 
         if post_loc[0] in (0,7) or post_loc[1] in (0,7):
             if opp_dist <= 3:
-                score -= 50 
+                score -= 50
             elif opp_dist <= 2:
-                score -= 150 
-        
+                score -= 150
+
         dist_opp_start = self.distance_to(post_loc, self.enemy_start)
         if dist_opp_start <= 2:
             score -= 30
@@ -547,12 +558,16 @@ class PlayerAgent:
                     score -= dist
         for not_reach1 in not_reachable1:
             self.other_corners.remove(not_reach1)
-        
+
         for unreachable in self.unreachable_corners:
             if self.distance_to(next_loc, unreachable) <= 2:
                 score -= 20
 
         return score
+
+    def in_inner_square(self, loc):
+            x, y = loc
+            return 1 <= x <= 6 and 1 <= y <= 6
 
     def is_reachable(self, board, start, target):
         if board.is_cell_blocked(target):
