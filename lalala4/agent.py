@@ -218,6 +218,15 @@ class PlayerAgent:
                 danger += self.trap_belief[idx][loc] * 500  # scale penalty
         return danger
 
+    def in_inner_square(self, loc: Tuple[int, int]) -> bool:
+        """
+        Returns True if loc is in the inner 6x6 square:
+        rows 1–6 and columns 1–6 (0-based indices).
+        """
+        x, y = loc
+        return 1 <= x <= 6 and 1 <= y <= 6
+
+
 
     def update_trap_senses(
         self,
@@ -401,11 +410,14 @@ class PlayerAgent:
                 score += 20
 
         if move_type == MoveType.TURD:
-            if not board.can_lay_egg():
-                x, y = location
-                if board.turns_left_player < 15:
-                    if x != 0 and y != 0 and x != 7 and y != 7:
-                        score += 4
+            # Only want to drop turds if we're in the inner 6x6
+            if not self.in_inner_square(location):
+                # Strongly discourage turds on the outer ring
+                score -= 100
+            else:
+                # Keep your late-game "no egg" bonus, but only inside 1..6 x 1..6
+                if not board.can_lay_egg() and board.turns_left_player < 15:
+                    score += 4
 
         if next_loc in self.visited:
             #maybe changing the heuristic here will prevent it from looping?
@@ -448,7 +460,7 @@ class PlayerAgent:
         # Check reachability to each corner
         not_reachable = []
         for corner in self.corners:
-            if not self.is_reachable(forecast, post_loc, corner):
+            if not self.is_reachable(board, location, corner):
                 not_reachable.append(corner)
                 self.unreachable_corners.add(corner)
         for not_reach in not_reachable:
@@ -457,7 +469,7 @@ class PlayerAgent:
         not_reachable1 = []
         if len(self.corners) == 0:
             for corner in self.other_corners:
-                if not self.is_reachable(forecast, post_loc, corner):
+                if not self.is_reachable(board, location, corner):
                     not_reachable1.append(corner)
                     self.unreachable_corners.add(corner)
         for not_reach1 in not_reachable1:
